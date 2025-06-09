@@ -3,7 +3,7 @@
   "description": "Türkçe Film ve Dizi İzleme Eklentileri",
   "manifestVersion": 1,
   "pluginLists": [
-    "https://raw.githubusercontent.com/Sertel392/egt/builds/plugins.json"
+    "https://raw.githubusercontent.com/Sertel392/egt/refs/heads/main/plugins.json"
   ]
 }
 
