@@ -1,122 +1,104 @@
-package com.asistan.emrah.filmmodu
+package com.asistanemrahcloudstream
 
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.mainPageOf
+import com.lagradost.cloudstream3.movie
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.Jsoup
 
 class FilmModu : MainAPI() {
-    override var mainUrl = "https://www.filmmodu.org"
+    override var mainUrl = "https://www.filmmodu.nl"
     override var name = "FilmModu"
     override val hasMainPage = true
     override var lang = "tr"
-    override val hasDownloadSupport = true
-    override val supportedTypes = setOf(
-        TvType.Movie,
-        TvType.TvSeries
-    )
+    override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries)
 
     override val mainPage = mainPageOf(
         "$mainUrl/filmler/page/" to "Filmler",
         "$mainUrl/diziler/page/" to "Diziler",
-        "$mainUrl/animeler/page/" to "Animeler"
+        "$mainUrl/animeler/page/" to "Animeler",
+        "$mainUrl/arsiv/page/" to "Arşiv",
+        "$mainUrl/turler/page/" to "Film Türleri",
+        "$mainUrl/yillar/page/" to "Film Yılları",
+        "$mainUrl/en-cok-izlenen/page/" to "En Çok İzlenen Filmler",
+        "$mainUrl/seri-filmler/page/" to "Seri Filmler",
+        "$mainUrl/oyuncular/page/" to "Oyuncular",
+        "$mainUrl/yonetmenler/page/" to "Yönetmenler",
+        "$mainUrl/altyazili/page/" to "Altyazılı Filmler",
+        "$mainUrl/turkce-dublaj/page/" to "Türkçe Dublaj Filmler"
     )
 
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = request.data + page
-        val document = app.get(url).document
-        val items = document.select("div.movie-box").map { element ->
-            val title = element.selectFirst("h2")?.text() ?: ""
-            val poster = element.selectFirst("img")?.attr("src")
-            val href = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
-            val year = element.selectFirst("span.year")?.text()?.toIntOrNull()
-            val quality = element.selectFirst("span.quality")?.text()
+    override suspend fun getMainPage(
+        page: Int,
+        request: MainPageRequest
+    ): HomePageResponse {
+        val document = app.get(request.data + page).document
+        val home = document.select("div.list-content div.ml-item").mapNotNull {
+            val title = it.selectFirst("h2")?.text() ?: return@mapNotNull null
+            val link = it.selectFirst("a")?.attr("href") ?: return@mapNotNull null
+            val poster = it.selectFirst("img")?.attr("data-original") ?: ""
+            val isTv = link.contains("/dizi/")
+            val quality = it.selectFirst(".mli-quality")?.text()
 
-            newMovieSearchResponse(
-                name = title,
-                url = href,
-                type = if (href.contains("/dizi/")) TvType.TvSeries else TvType.Movie
-            ) {
+            newMovieSearchResponse(title, link, if (isTv) TvType.TvSeries else TvType.Movie) {
                 this.posterUrl = poster
-                this.year = year
                 this.quality = getQualityFromString(quality)
             }
         }
-        return newHomePageResponse(request.name, items)
-    }
 
-    override suspend fun search(query: String): List<SearchResponse> {
-        val url = "$mainUrl/arama/$query"
-        val document = app.get(url).document
-        return document.select("div.movie-box").map { element ->
-            val title = element.selectFirst("h2")?.text() ?: ""
-            val href = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
-            val posterUrl = element.selectFirst("img")?.attr("src")
-            val year = element.selectFirst("span.year")?.text()?.toIntOrNull()
-            val quality = element.selectFirst("span.quality")?.text()
-
-            if (href.contains("/dizi/")) {
-                newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                    this.posterUrl = posterUrl
-                    this.year = year
-                    this.quality = getQualityFromString(quality)
-                }
-            } else {
-                newMovieSearchResponse(title, href, TvType.Movie) {
-                    this.posterUrl = posterUrl
-                    this.year = year
-                    this.quality = getQualityFromString(quality)
-                }
-            }
-        }
+        return newHomePageResponse(request.name, home)
     }
 
     override suspend fun load(url: String): LoadResponse {
         val document = app.get(url).document
-        val title = document.selectFirst("h1.movie-title")?.text() ?: ""
-        val poster = document.selectFirst("div.movie-poster img")?.attr("src")
-        val year = document.selectFirst("span.year")?.text()?.toIntOrNull()
-        val plot = document.selectFirst("div.story p")?.text()
-        val rating = document.selectFirst("span.imdb")?.text()?.toRatingInt()
-        val tags = document.select("div.genres a").map { it.text() }
-
-        val actors = document.select("div.cast-list div.cast-box").map { actorElement ->
-            Actor(
-                actorElement.selectFirst("h2")?.text() ?: "",
-                actorElement.selectFirst("img")?.attr("src")
+        val title = document.selectFirst("h1")?.text() ?: throw ErrorLoadingException("No title found")
+        val poster = document.selectFirst(".poster img")?.attr("src")
+        val description = document.selectFirst(".desc")?.text()
+        val year = document.selectFirst(".mvici-right span")?.text()?.toIntOrNull()
+        val tags = document.select("a[href*=/tur/]").map { it.text() }
+        val isTv = url.contains("/dizi/")
+        val trailer = document.select("iframe[src*='youtube']").attr("src")
+        val recommendations = document.select(".movie_list ul li").mapNotNull {
+            val recTitle = it.selectFirst(".title")?.text() ?: return@mapNotNull null
+            val recLink = it.selectFirst("a")?.attr("href") ?: return@mapNotNull null
+            val recPoster = it.selectFirst("img")?.attr("src")
+            MovieSearchResponse(
+                recTitle,
+                recLink,
+                this.name,
+                TvType.Movie,
+                recPoster,
+                null,
+                null,
+                null
             )
         }
 
-        return if (url.contains("/dizi/")) {
-            val episodes = document.select("div.episode-box").map { episodeElement ->
-                val episodeTitle = episodeElement.selectFirst("h2")?.text() ?: ""
-                val episodeNumber = episodeTitle.substringAfter("Bölüm ").toIntOrNull()
-                val seasonNumber = episodeTitle.substringAfter("Sezon ").substringBefore(" Bölüm").toIntOrNull()
-                val episodeUrl = fixUrl(episodeElement.selectFirst("a")?.attr("href") ?: "")
+        val episodes = document.select("#player-iframe embed, #player-iframe iframe").map {
+            val src = it.attr("src")
+            Episode(
+                name = "Bölüm",
+                data = src
+            )
+        }
 
-                Episode(
-                    data = episodeUrl,
-                    name = episodeTitle,
-                    season = seasonNumber,
-                    episode = episodeNumber
-                )
-            }
+        return if (isTv) {
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
                 this.year = year
-                this.plot = plot
-                this.rating = rating
                 this.tags = tags
-                this.actors = actors
+                this.plot = description
+                this.recommendations = recommendations
+                this.trailerUrl = trailer
             }
         } else {
-            newMovieLoadResponse(title, url, TvType.Movie, url) {
+            newMovieLoadResponse(title, url, TvType.Movie, episodes.firstOrNull()?.data ?: "") {
                 this.posterUrl = poster
                 this.year = year
-                this.plot = plot
-                this.rating = rating
                 this.tags = tags
-                this.actors = actors
+                this.plot = description
+                this.recommendations = recommendations
+                this.trailerUrl = trailer
             }
         }
     }
@@ -127,11 +109,7 @@ class FilmModu : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val document = app.get(data).document
-        document.select("div.video-player iframe").forEach { iframe ->
-            val src = iframe.attr("src")
-            loadExtractor(src, data, subtitleCallback, callback)
-        }
+        loadExtractor(data, mainUrl, subtitleCallback, callback)
         return true
     }
 }
