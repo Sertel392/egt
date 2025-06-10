@@ -1,0 +1,9 @@
+{
+  "name": "FilmModu",
+  "description": "Filmmodu eklentisi",
+  "version": "1.0.0",
+  "author": "Saklimavi",
+  "language": "tr",
+  "dependencies": [],
+  "mainClass": "com.sertel392egt.FilmModu"
+}
